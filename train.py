@@ -15,6 +15,7 @@ import torch
 from torch import cuda
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
+from dataset import CosineAnnealingWarmUpRestarts
 from tqdm import tqdm
 
 from east_dataset import EASTDataset
@@ -41,9 +42,10 @@ def parse_args():
     parser.add_argument('--input_size', type=int, default=512)
     parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--learning_rate', type=float, default=1e-3)
-    parser.add_argument('--max_epoch', type=int, default=200)
+    parser.add_argument('--max_epoch', type=int, default=100)
     parser.add_argument('--save_interval', type=int, default=5)
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
+    parser.add_argument('--CosineAnealing', type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -68,13 +70,13 @@ def increment_path(model_dir, exp_name, exist_ok=False): ### Custom : 실험명 
         return f"{exp_name}{n}"
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, exp_name):
+                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing):
 
     wandb.login()
     exp_name = increment_path(model_dir, exp_name)
     config = args.__dict__
     config['exp_name'] = exp_name
-    wandb.init(project="sunhyuktest", entity="cv-3-bitcoin",name=exp_name, config=config)
+    wandb.init(project="myeongu-data", entity="cv-3-bitcoin",name=exp_name, config=config)
     ### project명 수정 필요합니다!
 
     dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
@@ -85,8 +87,14 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
+    
+    if CosineAnealing:
+        optimizer = torch.optim.Adam(model.parameters(), lr = 0)
+        scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=5, T_mult=2, eta_max=0.1,  T_up=2, gamma=0.5)
+        print("[Scheduler]: CosineAnnealingWarmUpRestarts is applied!")
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
     model.train()
     for epoch in range(max_epoch):
