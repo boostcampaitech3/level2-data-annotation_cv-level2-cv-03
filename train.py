@@ -7,11 +7,11 @@ from argparse import ArgumentParser
 import glob
 from pathlib import Path
 import re
-
-
-
+import json
+from detect import detect
 
 import torch
+import cv2
 from torch import cuda
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
@@ -23,7 +23,7 @@ from dataset import SceneTextDataset
 from model import EAST
 
 import wandb
-
+from deteval import calc_deteval_metrics
 
 
 def parse_args():
@@ -42,10 +42,11 @@ def parse_args():
     parser.add_argument('--input_size', type=int, default=512)
     parser.add_argument('--batch_size', type=int, default=12)
     parser.add_argument('--learning_rate', type=float, default=1e-3)
-    parser.add_argument('--max_epoch', type=int, default=100)
+    parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--save_interval', type=int, default=5)
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
     parser.add_argument('--CosineAnealing', type=bool, default=False)
+    parser.add_argument('--validation', type=bool, default=True)
 
     args = parser.parse_args()
 
@@ -69,8 +70,15 @@ def increment_path(model_dir, exp_name, exist_ok=False): ### Custom : 실험명 
         n = max(i) + 1 if i else 2
         return f"{exp_name}{n}"
 
+def min_max_bbox(bbox):
+    x_list, y_list = [], []
+    for point in bbox:
+        x_list.append(point[0])
+        y_list.append(point[1])
+    return [min(x_list), min(y_list), max(x_list), max(y_list)]
+
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing):
+                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing, validation):
 
     wandb.login()
     exp_name = increment_path(model_dir, exp_name)
@@ -79,8 +87,29 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     wandb.init(project="myeongu-data", entity="cv-3-bitcoin",name=exp_name, config=config)
     ### project명 수정 필요합니다!
 
-    dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
-    dataset = EASTDataset(dataset)
+    if validation: ## validation while training
+        print('Validation is applied!')
+        dataset = SceneTextDataset(data_dir, split='train_v1', image_size=image_size, crop_size=input_size)
+        dataset = EASTDataset(dataset)
+    else:
+        dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
+        dataset = EASTDataset(dataset)
+    
+    ## validation
+    with open(osp.join(data_dir, 'ufo/{}.json'.format('valid_v1')), 'r') as f:
+        val_anno = json.load(f)
+    val_image_fname = sorted(val_anno['images'].keys())
+    val_image_dir = osp.join(data_dir, 'images')
+    gt_bboxes_dict = {}
+
+    for image_fname in val_image_fname:
+        words_info = val_anno['images'][image_fname]['words'].values()
+        words_bboxes = [word_info['points'] for word_info in words_info]
+        gt_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in words_bboxes]
+        # if image_fname in val_anno['images']:
+        #     print(gt_bboxes_dict)
+            
+
     num_batches = math.ceil(len(dataset) / batch_size)
     train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
@@ -90,14 +119,14 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     
     if CosineAnealing:
         optimizer = torch.optim.Adam(model.parameters(), lr = 0)
-        scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=5, T_mult=2, eta_max=0.1,  T_up=2, gamma=0.5)
+        scheduler = CosineAnnealingWarmUpRestarts(optimizer, T_0=max_epoch//7, T_mult=2, eta_max=0.1, T_up=10, gamma=0.1)
         print("[Scheduler]: CosineAnnealingWarmUpRestarts is applied!")
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
-    model.train()
     for epoch in range(max_epoch):
+        model.train()
         epoch_loss, epoch_start = 0, time.time()
         with tqdm(total=num_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
@@ -122,6 +151,35 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                 })
                 ### wandb 로깅 부분
                 pbar.set_postfix(val_dict)
+
+            ## validation 추가
+            model.eval()
+            
+            pred_bboxes_dict = {}
+            val_images = []
+            pred_bboxes = []
+
+            with torch.no_grad():
+                for image_fname in val_image_fname:
+                    image_fpath = osp.join(val_image_dir, image_fname)
+                    val_images.append(cv2.imread(image_fpath)[:, :, ::-1])
+                    if len(val_images) == batch_size:
+                        pred_bboxes.extend(detect(model, val_images, input_size))
+                        val_images = []
+
+                if len(val_images):
+                    pred_bboxes.extend(detect(model, val_images, input_size))
+
+                for image_fname, bboxes in zip(val_image_fname, pred_bboxes):
+                    pred_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in bboxes.tolist()]
+                
+                deteval_metrics = calc_deteval_metrics(pred_bboxes_dict, gt_bboxes_dict)['total']
+                print('[precision=' + str(deteval_metrics['precision'])
+                    + ' recall=' + str(deteval_metrics['precision'])
+                    + ' hmean=' + str(deteval_metrics['hmean']) + '] \n'
+                    )
+                wandb.log(deteval_metrics)
+            #################
 
         scheduler.step()
 
