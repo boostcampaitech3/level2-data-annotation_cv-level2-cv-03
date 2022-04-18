@@ -153,33 +153,34 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                 pbar.set_postfix(val_dict)
 
             ## validation 추가
-            model.eval()
-            
-            pred_bboxes_dict = {}
-            val_images = []
-            pred_bboxes = []
-
-            with torch.no_grad():
-                for image_fname in val_image_fname:
-                    image_fpath = osp.join(val_image_dir, image_fname)
-                    val_images.append(cv2.imread(image_fpath)[:, :, ::-1])
-                    if len(val_images) == batch_size:
-                        pred_bboxes.extend(detect(model, val_images, input_size))
-                        val_images = []
-
-                if len(val_images):
-                    pred_bboxes.extend(detect(model, val_images, input_size))
-
-                for image_fname, bboxes in zip(val_image_fname, pred_bboxes):
-                    pred_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in bboxes.tolist()]
+            if validation:
+                model.eval()
                 
-                deteval_metrics = calc_deteval_metrics(pred_bboxes_dict, gt_bboxes_dict)['total']
-                print('[precision=' + str(deteval_metrics['precision'])
-                    + ' recall=' + str(deteval_metrics['precision'])
-                    + ' hmean=' + str(deteval_metrics['hmean']) + '] \n'
-                    )
-                wandb.log(deteval_metrics)
-            #################
+                pred_bboxes_dict = {}
+                val_images = []
+                pred_bboxes = []
+
+                with torch.no_grad():
+                    for image_fname in val_image_fname:
+                        image_fpath = osp.join(val_image_dir, image_fname)
+                        val_images.append(cv2.imread(image_fpath)[:, :, ::-1])
+                        if len(val_images) == batch_size:
+                            pred_bboxes.extend(detect(model, val_images, input_size))
+                            val_images = []
+
+                    if len(val_images):
+                        pred_bboxes.extend(detect(model, val_images, input_size))
+
+                    for image_fname, bboxes in zip(val_image_fname, pred_bboxes):
+                        pred_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in bboxes.tolist()]
+                    
+                    deteval_metrics = calc_deteval_metrics(pred_bboxes_dict, gt_bboxes_dict)['total']
+                    print('[precision=' + str(deteval_metrics['precision'])
+                        + ' recall=' + str(deteval_metrics['precision'])
+                        + ' hmean=' + str(deteval_metrics['hmean']) + '] \n'
+                        )
+                    wandb.log(deteval_metrics)
+                #################
 
         scheduler.step()
 
