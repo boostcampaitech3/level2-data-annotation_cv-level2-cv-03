@@ -46,7 +46,7 @@ def parse_args():
     parser.add_argument('--save_interval', type=int, default=5)
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
     parser.add_argument('--CosineAnealing', type=bool, default=False)
-    parser.add_argument('--validation', type=bool, default=True)
+    parser.add_argument('--validation', type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -96,18 +96,19 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
         dataset = EASTDataset(dataset)
     
     ## validation
-    with open(osp.join(data_dir, 'ufo/{}.json'.format('valid_v1')), 'r') as f:
-        val_anno = json.load(f)
-    val_image_fname = sorted(val_anno['images'].keys())
-    val_image_dir = osp.join(data_dir, 'images')
-    gt_bboxes_dict = {}
+    if validation:
+        with open(osp.join(data_dir, 'ufo/{}.json'.format('valid_v1')), 'r') as f:
+            val_anno = json.load(f)
+        val_image_fname = sorted(val_anno['images'].keys())
+        val_image_dir = osp.join(data_dir, 'images')
+        gt_bboxes_dict = {}
 
-    for image_fname in val_image_fname:
-        words_info = val_anno['images'][image_fname]['words'].values()
-        words_bboxes = [word_info['points'] for word_info in words_info]
-        gt_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in words_bboxes]
-        # if image_fname in val_anno['images']:
-        #     print(gt_bboxes_dict)
+        for image_fname in val_image_fname:
+            words_info = val_anno['images'][image_fname]['words'].values()
+            words_bboxes = [word_info['points'] for word_info in words_info]
+            gt_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in words_bboxes]
+            # if image_fname in val_anno['images']:
+            #     print(gt_bboxes_dict)
             
 
     num_batches = math.ceil(len(dataset) / batch_size)
