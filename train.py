@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
     parser.add_argument('--CosineAnealing', type=bool, default=False)
     parser.add_argument('--validation', type=bool, default=False)
-    parser.add_argument('--pretrained_path', type=str, default='/opt/ml/code/trained_models/latest.pth')
+    parser.add_argument('--pretrained_path', type=str, default='')
 
     args = parser.parse_args()
 
