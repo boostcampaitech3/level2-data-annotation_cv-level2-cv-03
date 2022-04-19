@@ -47,6 +47,7 @@ def parse_args():
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
     parser.add_argument('--CosineAnealing', type=bool, default=False)
     parser.add_argument('--validation', type=bool, default=False)
+    parser.add_argument('--pretrained_path', type=str, default='/opt/ml/code/trained_models/latest.pth')
 
     args = parser.parse_args()
 
@@ -78,7 +79,7 @@ def min_max_bbox(bbox):
     return [min(x_list), min(y_list), max(x_list), max(y_list)]
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing, validation):
+                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing, validation, pretrained_path):
 
     wandb.login()
     exp_name = increment_path(model_dir, exp_name)
@@ -116,6 +117,9 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
+    if pretrained_path:
+        print("pretrained mode!")
+        model.load_state_dict(torch.load(pretrained_path))
     model.to(device)
     
     if CosineAnealing:
