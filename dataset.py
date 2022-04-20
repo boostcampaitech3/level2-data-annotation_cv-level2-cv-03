@@ -9,6 +9,8 @@ import cv2
 import albumentations as A
 from torch.utils.data import Dataset
 from shapely.geometry import Polygon
+from augment import ComposedTransformation
+from imageio import imread
 
 ########## custom scheduler ############
 from torch.optim.lr_scheduler import _LRScheduler
@@ -405,6 +407,16 @@ class SceneTextDataset(Dataset):
         self.image_size, self.crop_size = image_size, crop_size
         self.color_jitter, self.normalize = color_jitter, normalize
 
+        ## 해당 부분에서 원하시는 augmentation 적용하시면 됩니다!
+        self.transform = ComposedTransformation(
+            rotate_range=10, crop_aspect_ratio=1, crop_size=(0.3, 1.0),
+            hflip=True, vflip=True, random_translate=True,
+            resize_to=512,
+            min_image_overlap=0.9, min_bbox_overlap=0.95, min_bbox_count=1, allow_partial_occurrence=True,
+            max_random_trials=1000,
+            brightness=0.2, contrast=0.3, saturation=0.2, hue=0.2,
+        )
+
     def __len__(self):
         return len(self.image_fnames)
 
@@ -412,6 +424,7 @@ class SceneTextDataset(Dataset):
         image_fname = self.image_fnames[idx]
         image_fpath = osp.join(self.image_dir, image_fname)
 
+        ## ComposedTransform
         vertices, labels = [], []
         for word_info in self.anno['images'][image_fname]['words'].values():
             vertices.append(np.array(word_info['points']).flatten())
@@ -419,25 +432,46 @@ class SceneTextDataset(Dataset):
         vertices, labels = np.array(vertices, dtype=np.float32), np.array(labels, dtype=np.int64)
 
         vertices, labels = filter_vertices(vertices, labels, ignore_under=10, drop_under=1)
+        bboxes = np.reshape(vertices, (-1, 4, 2))
 
-        image = Image.open(image_fpath)
-        image, vertices = resize_img(image, vertices, self.image_size)
-        image, vertices = adjust_height(image, vertices)
-        image, vertices = rotate_img(image, vertices)
-        image, vertices = crop_img(image, vertices, labels, self.crop_size)
+        try: # try 부분이 새롭게 적용하는 ComposedTransformation 부분입니다.
+            image = imread(image_fpath, pilmode='RGB')
+            transformed = self.transform(image=image, word_bboxes=bboxes)
+            image, vertices = transformed['image'], transformed['word_bboxes']
+            
+            image = np.array(image)
+            
+            funcs = []
+            if self.color_jitter:
+                funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+            if self.normalize:
+                funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
+            transform = A.Compose(funcs)
 
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        image = np.array(image)
+            image = transform(image=image)['image']
+        
+        except: # 종종 bbox 문제가 발생해서 에러가 뜨는데 그부분은 기존대로 불러오도록 했습니다.
+            # if image_fname in ['image_1586.jpg', 'img_5536.jpg', 'img_4907.jpg', 'img_1697.jpg']: # for overlay error
+            image = Image.open(image_fpath)
+            image, vertices = resize_img(image, vertices, self.image_size)
+            image, vertices = adjust_height(image, vertices)
+            image, vertices = rotate_img(image, vertices)
+            image, vertices = crop_img(image, vertices, labels, self.crop_size)
+            
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            image = np.array(image)
 
-        funcs = []
-        if self.color_jitter:
-            funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
-        if self.normalize:
-            funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
-        transform = A.Compose(funcs)
+            funcs = []
+            if self.color_jitter:
+                funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+            if self.normalize:
+                funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
+            transform = A.Compose(funcs)
 
-        image = transform(image=image)['image']
+            image = transform(image=image)['image']
+        ########################
+
         word_bboxes = np.reshape(vertices, (-1, 4, 2))
         roi_mask = generate_roi_mask(image, vertices, labels)
 
