@@ -10,10 +10,10 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader, ConcatDataset, Dataset
 
 
-SRC_DATASET_DIR = '/data/datasets/ICDAR17_MLT'  # FIXME
-DST_DATASET_DIR = '/data/datasets/ICDAR17_Korean'  # FIXME
+SRC_DATASET_DIR = '../input/data/ICDAR17_MLT'  # FIXME
+DST_DATASET_DIR = '../input/data/ICDAR17_New'  # FIXME
 
-NUM_WORKERS = 32  # FIXME
+NUM_WORKERS = 8  # FIXME
 
 IMAGE_EXTENSIONS = {'.gif', '.jpg', '.png'}
 
@@ -47,7 +47,9 @@ class MLT17Dataset(Dataset):
             assert label_path in label_paths
 
             words_info, extra_info = self.parse_label_file(label_path)
-            if 'ko' not in extra_info['languages'] or extra_info['languages'].difference({'ko', 'en'}):
+            # if 'ko' not in extra_info['languages'] or extra_info['languages'].difference({'ko', 'en'}):
+            #     continue
+            if 'ko' not in extra_info['languages'] and 'en' not in extra_info['languages']:
                 continue
 
             sample_ids.append(sample_id)

@@ -46,7 +46,8 @@ def parse_args():
     parser.add_argument('--save_interval', type=int, default=5)
     parser.add_argument('--exp_name', type=str, default='test') ### wandb 실험 제목, pth 저장하는 폴더 이름
     parser.add_argument('--CosineAnealing', type=bool, default=False)
-    parser.add_argument('--validation', type=bool, default=True)
+    parser.add_argument('--validation', type=bool, default=False)
+    parser.add_argument('--pretrained_path', type=str, default='')
 
     args = parser.parse_args()
 
@@ -78,7 +79,7 @@ def min_max_bbox(bbox):
     return [min(x_list), min(y_list), max(x_list), max(y_list)]
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing, validation):
+                learning_rate, max_epoch, save_interval, exp_name, CosineAnealing, validation, pretrained_path):
 
     wandb.login()
     exp_name = increment_path(model_dir, exp_name)
@@ -96,18 +97,19 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
         dataset = EASTDataset(dataset)
     
     ## validation
-    with open(osp.join(data_dir, 'ufo/{}.json'.format('valid_v1')), 'r') as f:
-        val_anno = json.load(f)
-    val_image_fname = sorted(val_anno['images'].keys())
-    val_image_dir = osp.join(data_dir, 'images')
-    gt_bboxes_dict = {}
+    if validation:
+        with open(osp.join(data_dir, 'ufo/{}.json'.format('valid_v1')), 'r') as f:
+            val_anno = json.load(f)
+        val_image_fname = sorted(val_anno['images'].keys())
+        val_image_dir = osp.join(data_dir, 'images')
+        gt_bboxes_dict = {}
 
-    for image_fname in val_image_fname:
-        words_info = val_anno['images'][image_fname]['words'].values()
-        words_bboxes = [word_info['points'] for word_info in words_info]
-        gt_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in words_bboxes]
-        # if image_fname in val_anno['images']:
-        #     print(gt_bboxes_dict)
+        for image_fname in val_image_fname:
+            words_info = val_anno['images'][image_fname]['words'].values()
+            words_bboxes = [word_info['points'] for word_info in words_info]
+            gt_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in words_bboxes]
+            # if image_fname in val_anno['images']:
+            #     print(gt_bboxes_dict)
             
 
     num_batches = math.ceil(len(dataset) / batch_size)
@@ -115,6 +117,9 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
+    if pretrained_path:
+        print("pretrained mode!")
+        model.load_state_dict(torch.load(pretrained_path))
     model.to(device)
     
     if CosineAnealing:
@@ -153,33 +158,34 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                 pbar.set_postfix(val_dict)
 
             ## validation 추가
-            model.eval()
-            
-            pred_bboxes_dict = {}
-            val_images = []
-            pred_bboxes = []
-
-            with torch.no_grad():
-                for image_fname in val_image_fname:
-                    image_fpath = osp.join(val_image_dir, image_fname)
-                    val_images.append(cv2.imread(image_fpath)[:, :, ::-1])
-                    if len(val_images) == batch_size:
-                        pred_bboxes.extend(detect(model, val_images, input_size))
-                        val_images = []
-
-                if len(val_images):
-                    pred_bboxes.extend(detect(model, val_images, input_size))
-
-                for image_fname, bboxes in zip(val_image_fname, pred_bboxes):
-                    pred_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in bboxes.tolist()]
+            if validation:
+                model.eval()
                 
-                deteval_metrics = calc_deteval_metrics(pred_bboxes_dict, gt_bboxes_dict)['total']
-                print('[precision=' + str(deteval_metrics['precision'])
-                    + ' recall=' + str(deteval_metrics['precision'])
-                    + ' hmean=' + str(deteval_metrics['hmean']) + '] \n'
-                    )
-                wandb.log(deteval_metrics)
-            #################
+                pred_bboxes_dict = {}
+                val_images = []
+                pred_bboxes = []
+
+                with torch.no_grad():
+                    for image_fname in val_image_fname:
+                        image_fpath = osp.join(val_image_dir, image_fname)
+                        val_images.append(cv2.imread(image_fpath)[:, :, ::-1])
+                        if len(val_images) == batch_size:
+                            pred_bboxes.extend(detect(model, val_images, input_size))
+                            val_images = []
+
+                    if len(val_images):
+                        pred_bboxes.extend(detect(model, val_images, input_size))
+
+                    for image_fname, bboxes in zip(val_image_fname, pred_bboxes):
+                        pred_bboxes_dict[image_fname] = [min_max_bbox(bbox) for bbox in bboxes.tolist()]
+                    
+                    deteval_metrics = calc_deteval_metrics(pred_bboxes_dict, gt_bboxes_dict)['total']
+                    print('[precision=' + str(deteval_metrics['precision'])
+                        + ' recall=' + str(deteval_metrics['precision'])
+                        + ' hmean=' + str(deteval_metrics['hmean']) + '] \n'
+                        )
+                    wandb.log(deteval_metrics)
+                #################
 
         scheduler.step()
 
