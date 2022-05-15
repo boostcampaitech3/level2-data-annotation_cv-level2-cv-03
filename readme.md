@@ -1,18 +1,18 @@
 # 🔠 Data Annotation for OCR data
-
+<br />
 
 ## 👨‍🌾 Team
 
 - Level 2 CV Team 03 - 비뜨코인
 - 팀 구성원 : 김대근, 박선혁, 강면구, 정재욱, 한현진
-
+<br />
 
 ## 🎇 Main Subject
 
 스마트폰 카드 결제, 카메라로 카드 인식, 주차장 내 차량 번호 인식기 등 사람이 쓰거나 이미지 속에 있는 문자를 컴퓨터가 인식할 수 있도록 하는 기술을 OCR(Optical Character Recognition)이라 부르며 생활 속 다양한 편의 기능 제공에 필수적인 기술입니다.
 
 해당 프로젝트에서는 크게 글자 검출(text detection), 글자 인식(text recognition), 정렬(Serialization)의 3가지 단계로 구성된 OCR task에서 글자 검출 task 만을 집중적으로 향상 시키는 것을 목표로 합니다.
-
+<br />
 
 ## 💻 Development Environment
 
@@ -21,7 +21,7 @@
 **서버**: AI STAGES (GPU: NVIDIA TESLA V100)
 
 **협업 Tool** : git, notion, [wandb](https://wandb.ai/cv-3-bitcoin), google spreadsheet, slack
-
+<br />
 
 ## 🌿 Project Summary
 
@@ -74,6 +74,6 @@ dataset
 1. One-to-one match : 하나의 글자 영역이 하나의 예측 영역과 일치하는 경우
 2. Many-to-one match : 여러개의 글자 영역이 하나의 예측 영역과 일치하는 경우
 3. One-to-many match : 하나의 글자 영역이 여러개의 예측 영역의 합과 일치하는 경우
-
+<br />
 
 ## [Wrap Up Report](https://www.notion.so/Wrap-Up-ddf7e31aae474ad79b8a4153157ccbf4)
